@@ -1,0 +1,13 @@
+pandas
+numpy
+scikit-learn
+tensorflow
+flask
+Werkzeug
+joblib
+matplotlib
+seaborn
+PyMuPDF
+python-docx
+torch
+transformers

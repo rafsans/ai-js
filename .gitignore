@@ -2,3 +2,5 @@
 .venv
 CV_test.pdf
 models/
+venv/
+data/uploads
