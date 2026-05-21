@@ -4,3 +4,5 @@ CV_test.pdf
 models/
 venv/
 data/uploads
+logs
+__pycache__
