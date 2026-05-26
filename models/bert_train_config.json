@@ -1,0 +1,49 @@
+{
+  "pretrained_model": "bert-base-uncased",
+  "max_length": 512,
+  "batch_size": 16,
+  "epochs": 5,
+  "learning_rate": 2e-05,
+  "num_classes": 19,
+  "label_classes": [
+    "administration",
+    "backend_dev",
+    "cloud_devops",
+    "customer_service",
+    "data_analyst_bi",
+    "data_science_ai",
+    "design_uiux",
+    "digital_marketing",
+    "finance_accounting",
+    "frontend_dev",
+    "hr_recruitment",
+    "internship",
+    "management",
+    "mobile_dev",
+    "network_security",
+    "procurement",
+    "sales",
+    "software_dev",
+    "technical_support"
+  ],
+  "model_dir": "models/bert_jobcategory",
+  "label_encoder": "models/bert_label_encoder.pkl",
+  "input_column": "text",
+  "target_column": "label",
+  "split_shapes": {
+    "train": [
+      33715,
+      8
+    ],
+    "validation": [
+      3744,
+      8
+    ],
+    "test": [
+      4162,
+      8
+    ]
+  },
+  "test_accuracy": 0.9896684286400769,
+  "test_top3_accuracy": 0.997837578087458
+}

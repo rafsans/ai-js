@@ -3,7 +3,7 @@ results/.env
 .env
 
 # Model files (besar, tidak perlu di-commit)
-models/
+models/bert_jobcategory
 logs/
 
 # Data

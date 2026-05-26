@@ -1,0 +1,40 @@
+{
+  "vocab_size": 20000,
+  "max_length": 400,
+  "num_classes": 11,
+  "input_column": "text",
+  "target_column": "label",
+  "model_type": "BiLSTM Job Category Classifier",
+  "model_file": "models/model_jobcategory_dl.keras",
+  "split_shapes": {
+    "train": [
+      8586,
+      2
+    ],
+    "validation": [
+      1073,
+      2
+    ],
+    "test": [
+      1074,
+      2
+    ]
+  },
+  "label_classes": [
+    "Administration & Customer Service",
+    "Creative Design",
+    "Education",
+    "Engineering",
+    "Finance",
+    "Healthcare",
+    "Human Resources",
+    "Information Technology",
+    "Marketing",
+    "Operations",
+    "Sales"
+  ],
+  "test_metrics": {
+    "loss": 0.5304185748100281,
+    "compile_metrics": 0.8631284832954407
+  }
+}
