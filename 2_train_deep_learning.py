@@ -1,14 +1,7 @@
-"""
-2_train_deep_learning.py
-========================
-Training model BiLSTM untuk Job Category Classifier.
-Dataset: data/ds_jobs_ready.csv (kolom: text, label)
-"""
 
 import json
 import os
 import pickle
-import datetime
 
 import numpy as np
 import pandas as pd
@@ -32,22 +25,32 @@ VAL_SPLIT_FILE    = "data/val_split.csv"
 TEST_SPLIT_FILE   = "data/test_split.csv"
 
 
+class Top3AccuracyCallback(tf.keras.callbacks.Callback):
+    def __init__(self, validation_data, k=3):
+        super().__init__()
+        self.x_val, self.y_val = validation_data
+        self.k = k
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        if self.x_val is None or self.y_val is None or len(self.x_val) == 0:
+            return
+        probs = self.model.predict(self.x_val, verbose=0)
+        y_true_int = np.argmax(self.y_val, axis=1)
+        topk_acc = top_k_accuracy_from_probs(probs, y_true_int, k=self.k)
+        logs[f"custom_val_top_{self.k}_accuracy"] = topk_acc
+        print(f" - custom_val_top_{self.k}_accuracy: {topk_acc:.4f}")
+
 
 class TargetCallback(tf.keras.callbacks.Callback):
-    def __init__(self, monitor="val_accuracy", target=0.85, min_epoch=8):
+    def __init__(self, monitor="val_accuracy", target=0.85):
         super().__init__()
         self.monitor = monitor
         self.target = target
-        self.min_epoch = min_epoch
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
         score = logs.get(self.monitor)
-
-        # Jangan stop terlalu cepat
-        if epoch + 1 < self.min_epoch:
-            return
-
         if score is not None and score >= self.target:
             print(f"\n[INFO] Target {self.monitor} tercapai: {score:.4f}")
             self.model.stop_training = True
@@ -58,28 +61,26 @@ def build_model(vocab_size: int, max_length: int, num_classes: int) -> Model:
 
     x = layers.Embedding(
         input_dim=vocab_size,
-        output_dim=256,  # DITINGKATKAN DARI 128
+        output_dim=128,
         name="embedding"
     )(inputs)
 
-    x = layers.SpatialDropout1D(0.2, name="spatial_dropout")(x)
+    x = layers.SpatialDropout1D(0.3, name="spatial_dropout")(x)
 
     x = layers.Bidirectional(
-        layers.LSTM(64, return_sequences=True, dropout=0.2, recurrent_dropout=0.0),
+        layers.LSTM(64, return_sequences=True, dropout=0.3, recurrent_dropout=0.0),
         name="bilstm_1"
     )(x)
 
     x = layers.Bidirectional(
-        layers.LSTM(32, return_sequences=True, dropout=0.2, recurrent_dropout=0.0), # UBAH return_sequences=True
+        layers.LSTM(32, dropout=0.3, recurrent_dropout=0.0),
         name="bilstm_2"
     )(x)
 
-    x = layers.GlobalMaxPooling1D(name="global_max_pooling")(x) # TAMBAH POOLING
-
     x = layers.Dense(64, activation="relu", name="dense_1")(x)
-    x = layers.Dropout(0.3, name="dropout_1")(x)
+    x = layers.Dropout(0.5, name="dropout_1")(x)
     x = layers.Dense(64, activation="relu", name="dense_2")(x)
-    x = layers.Dropout(0.2, name="dropout_2")(x)
+    x = layers.Dropout(0.3, name="dropout_2")(x)
 
     outputs = layers.Dense(num_classes, activation="softmax", name="output_layer")(x)
     return Model(inputs=inputs, outputs=outputs)
@@ -106,8 +107,7 @@ def main():
         raise ValueError("Minimal butuh 2 kelas label untuk training deep learning.")
 
     train_df, val_df, test_df = split_train_val_test(
-        df, text_col="text", label_col="label",
-        train_ratio=0.80, val_ratio=0.10, test_ratio=0.10, random_state=42
+        df, test_size=0.10, val_size=0.10, random_state=42
     )
     train_df.to_csv(TRAIN_SPLIT_FILE, index=False, encoding="utf-8")
     val_df.to_csv(VAL_SPLIT_FILE, index=False, encoding="utf-8")
@@ -148,30 +148,15 @@ def main():
     test_pad  = pad_sequences(tokenizer.texts_to_sequences(X_test),  maxlen=max_length, padding="post", truncating="post") if len(X_test) else None
 
     # class_weight digunakan karena dataset tidak seimbang
-    # Versi stabil: akar ke-4 + clipping
     class_weights_array = compute_class_weight(
         class_weight="balanced",
         classes=np.unique(y_train_int),
         y=y_train_int
     )
-
-    class_weights_array = np.power(class_weights_array, 0.25)
-    class_weights_array = np.clip(class_weights_array, 0.7, 2.0)
-
-    class_weights = {
-        int(cls): float(w)
-        for cls, w in zip(np.unique(y_train_int), class_weights_array)
-    }
-
-    print("\n[INFO] Class weights:")
-    for cls, weight in class_weights.items():
-        print(f"  {cls} - {label_encoder.classes_[cls]}: {weight:.4f}")
+    class_weights = {int(cls): float(w) for cls, w in zip(np.unique(y_train_int), class_weights_array)}
 
     model = build_model(vocab_size=vocab_size, max_length=max_length, num_classes=num_classes)
-    
-    # UBAH LEARNING RATE DARI 1e-3 KE 5e-4
-    optimizer = tf.keras.optimizers.Adam(learning_rate=5e-4) 
-    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
     model.compile(
         optimizer=optimizer,
         loss="categorical_crossentropy",
@@ -185,44 +170,27 @@ def main():
     )
 
     has_validation = val_pad is not None and y_val is not None and len(val_df) > 0
-    # Karena target utama adalah accuracy minimal 85%,
-    # model disimpan berdasarkan val_accuracy, bukan val_top_3_accuracy.
-    monitor_metric = "val_accuracy" if has_validation else "accuracy"
+    monitor_metric = "val_top_3_accuracy" if has_validation else "top_3_accuracy"
 
     callbacks = [
-        tf.keras.callbacks.TensorBoard(
-            log_dir=os.path.join("logs", "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S")),
-            histogram_freq=1
-        ),
-        TargetCallback(
-            monitor=monitor_metric,
-            target=0.85,
-            min_epoch=8
-        ),
+        TargetCallback(monitor=monitor_metric, target=0.92),
         tf.keras.callbacks.EarlyStopping(
-            monitor=monitor_metric,
-            patience=6,
-            restore_best_weights=True,
-            mode="max",
-            verbose=1
+            monitor=monitor_metric, patience=5,
+            restore_best_weights=True, mode="max", verbose=1
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor=monitor_metric,
-            factor=0.5,
-            patience=2,
-            min_lr=1e-6,
-            mode="max",
-            verbose=1
+            monitor=monitor_metric, factor=0.5,
+            patience=2, min_lr=1e-6, mode="max", verbose=1
         ),
         tf.keras.callbacks.ModelCheckpoint(
-            filepath=MODEL_FILE,
-            monitor=monitor_metric,
-            save_best_only=True,
-            mode="max",
-            verbose=1
+            filepath=MODEL_FILE, monitor=monitor_metric,
+            save_best_only=True, mode="max", verbose=1
         ),
     ]
-    
+    if has_validation:
+        callbacks.insert(0, Top3AccuracyCallback(
+            validation_data=(val_pad, y_val), k=min(3, num_classes)
+        ))
 
     history = model.fit(
         train_pad, y_train,

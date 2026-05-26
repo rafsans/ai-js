@@ -1,14 +1,3 @@
-"""
-6_cosine_similarity_regression.py
-==================================
-Modul cosine similarity ranking dan supervised regression (opsional).
-
-Dataset DS hanya berisi kolom: text, label
-Karena tidak ada kolom pasangan resume_text, supervised regression tidak dilatih secara penuh.
-Yang dilakukan:
-  1. Menghitung cosine similarity score antara satu sample resume dan seluruh kolom text.
-  2. Jika dataset memiliki kolom resume_text, script otomatis melatih model regresi Ridge.
-"""
 
 import json
 import os

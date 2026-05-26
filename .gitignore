@@ -1,8 +1,38 @@
-.idea
-.venv
-CV_test.pdf
+# Environment & API Keys
+results/.env
+.env
+
+# Model files (besar, tidak perlu di-commit)
 models/
+logs/
+
+# Data
+data/ds_jobs_ready.csv
+data/train_split.csv
+data/val_split.csv
+data/test_split.csv
+data/uploads/
+
+# Results
+results/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
 venv/
-data/uploads
+env/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+CV_test.pdf
 logs
-__pycache__
+.idea

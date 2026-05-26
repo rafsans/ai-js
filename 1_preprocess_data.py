@@ -1,9 +1,4 @@
-"""
-1_preprocess_data.py
-====================
-Preprocessing untuk dataset Job Category Classifier.
-Dataset input harus berisi kolom: text, label
-"""
+
 
 import os
 import pandas as pd

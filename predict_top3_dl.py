@@ -1,27 +1,39 @@
-"""
-predict_top3_dl.py
-==================
-Inferensi Top-3 Job Category dari teks atau file (PDF/DOCX/TXT).
-Menggunakan HuggingFace BERT.
-"""
-
-import json
 import os
 import pickle
-import warnings
 
-# Menyembunyikan peringatan (FutureWarning/InconsistentVersion) dari pustaka bawaan
-warnings.filterwarnings("ignore")
-
+import numpy as np
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 from extractors import extract_text_from_docx, extract_text_from_pdf
-from project_utils import clean_noise
+from project_utils import safe_clean
 
-MODEL_PATH         = "models/bert_jobcategory"
-LABEL_ENCODER_FILE = "models/bert_label_encoder.pkl"
+from logger import get_logger
+log = get_logger("predict")
 
+# Import untuk deteksi bahasa dan translasi
+try:
+    from langdetect import detect
+except ImportError:
+    log.warning("'langdetect' belum di-install. Jalankan: pip install langdetect")
+    detect = None
+
+try:
+    from translator import translate_to_english
+except ImportError:
+    log.warning("Modul 'translator' tidak ditemukan atau gagal dimuat.")
+    translate_to_english = lambda x: x
+
+# ===========================================================================
+# Paths — hasil output dari 3b_train_bert.py
+# ===========================================================================
+BERT_MODEL_DIR      = "models/bert_jobcategory"
+LABEL_ENCODER_FILE  = "models/bert_label_encoder.pkl"
+
+
+# ===========================================================================
+# Helpers
+# ===========================================================================
 
 def extract_text_from_file(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
@@ -43,123 +55,149 @@ def confidence_level(prob: float) -> str:
     return "Low"
 
 
-def load_inference_assets():
-    if not os.path.exists(MODEL_PATH):
+# ===========================================================================
+# Load model assets
+# ===========================================================================
+
+def load_inference_assets() -> dict:
+    if not os.path.isdir(BERT_MODEL_DIR):
         raise FileNotFoundError(
-            f"Folder model tidak ditemukan: {MODEL_PATH}\n"
-            "Pastikan model BERT sudah dilatih dan disimpan di folder tersebut."
+            f"Folder model BERT tidak ditemukan: {BERT_MODEL_DIR}\n"
+            "Jalankan 3b_train_bert.py untuk melatih model terlebih dahulu."
         )
-    
     if not os.path.exists(LABEL_ENCODER_FILE):
         raise FileNotFoundError(
-            f"File label encoder tidak ditemukan: {LABEL_ENCODER_FILE}\n"
-            "Pastikan file label encoder sudah ada."
+            f"Label encoder tidak ditemukan: {LABEL_ENCODER_FILE}\n"
+            "Jalankan 3b_train_bert.py untuk melatih model terlebih dahulu."
         )
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_PATH
-    )
-    
-    tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_PATH
-    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    log.info(f"Memuat tokenizer BERT dari: {BERT_MODEL_DIR}")
+    tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_DIR)
+
+    log.info(f"Memuat model BERT dari: {BERT_MODEL_DIR}")
+    model = AutoModelForSequenceClassification.from_pretrained(BERT_MODEL_DIR)
+    model.to(device)
+    model.eval()
 
     with open(LABEL_ENCODER_FILE, "rb") as f:
         label_encoder = pickle.load(f)
 
+    log.info(f"BERT siap. Device: {device} | Kelas: {len(label_encoder.classes_)}")
     return {
-        "model": model,
-        "tokenizer": tokenizer,
-        "label_encoder": label_encoder
+        "model":         model,
+        "tokenizer":     tokenizer,
+        "label_encoder": label_encoder,
+        "device":        device,
     }
 
 
-def predict_top3_text(input_text: str, assets: dict) -> list:
-    """
-    Prediksi Top-3 job category dari teks input menggunakan BERT.
-    """
-    cleaned_text = clean_noise(input_text)
+# ===========================================================================
+# Inference
+# ===========================================================================
 
-    model = assets["model"]
-    tokenizer = assets["tokenizer"]
+def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
+    """
+    Prediksi Top-3 job category dari teks input menggunakan BERT dengan Auto-Translate.
+
+    Returns:
+        tuple: (list of dict prediksi, str teks yang sudah di-translate/di-proses)
+    """
+    if not input_text or not input_text.strip():
+        return [{"category": "Unknown", "confidence": 0.0}], input_text
+
+    # 1. Otomatis deteksi bahasa & translasi ke English jika perlu
+    translated_text = input_text
+    try:
+        if detect:
+            lang = detect(input_text)
+            if lang != "en":
+                log.info(f"Deteksi bahasa: {lang}. Menerjemahkan ke English...")
+                translated_text = translate_to_english(input_text)
+            else:
+                log.info("Deteksi bahasa: EN (English). Melompati translasi.")
+        else:
+            translated_text = translate_to_english(input_text)
+    except Exception as e:
+        log.warning(f"Gagal mendeteksi bahasa atau translasi: {e}. Menggunakan teks asli.")
+        translated_text = input_text
+
+    # 2. Text Preprocessing (Melindungi token teknologi & normalisasi)
+    cleaned = safe_clean(translated_text)
+    if not cleaned.strip():
+        return [{"category": "Unknown", "confidence": 0.0}], translated_text
+
+    model         = assets["model"]
+    tokenizer     = assets["tokenizer"]
     label_encoder = assets["label_encoder"]
+    device        = assets["device"]
 
-    # Tokenisasi input
+    # 3. Tokenisasi
     inputs = tokenizer(
-        cleaned_text,
-        return_tensors="pt",
+        cleaned,
+        max_length=256,  # Pastikan sama dengan max_length saat training BERT Anda
+        padding="max_length",
         truncation=True,
-        padding=True,
-        max_length=128
+        return_tensors="pt",
     )
+    inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    # Inference tanpa gradient
+    # 4. Forward pass model
     with torch.no_grad():
-        outputs = model(**inputs)
+        logits = model(**inputs).logits
 
-    logits = outputs.logits
-    probs = torch.softmax(logits, dim=1)[0]
-
-    top_k = min(6, len(label_encoder.classes_))
-    top_probs, top_indices = torch.topk(probs, top_k)
+    probs   = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+    top_k   = min(3, len(label_encoder.classes_))
+    top_idx = np.argsort(probs)[-top_k:][::-1]
 
     results = []
-
-    for prob, idx in zip(top_probs, top_indices):
-        label = label_encoder.inverse_transform([idx.item()])[0]
-        
+    for idx in top_idx:
+        label = label_encoder.inverse_transform([idx])[0]
         results.append({
-            "category": label,
-            "confidence": round(prob.item(), 4)
+            "category":   label,
+            "confidence": float(probs[idx]),
         })
-
-        if len(results) == 3:
-            break
 
     if not results:
-        results.append({
-            "category": "Unknown",
-            "confidence": 0.0
-        })
-    
-    # Tambahkan confidence threshold untuk prediksi yang tidak pasti
-    if results[0]["confidence"] < 0.45:
-        results.insert(0, {
-            "category": "UNCERTAIN",
-            "confidence": round(results[0]["confidence"], 4)
-        })
+        results = [{"category": "Unknown", "confidence": 0.0}]
 
-    return results
+    return results, translated_text
 
 
 def predict_from_file(file_path: str, assets: dict | None = None) -> dict:
-    assets = assets or load_inference_assets()
+    """
+    Prediksi Top-3 job category dari file PDF/DOCX/TXT secara independen tanpa Gemini API.
+    """
+    assets   = assets or load_inference_assets()
     raw_text = extract_text_from_file(file_path)
-    
-    # Translasi dan Analisis CV secara paralel/sekuensial
-    from translator import translate_to_english, analyze_resume
-    translated_text = translate_to_english(raw_text)
-    cv_feedback     = analyze_resume(raw_text)
-    
-    results = predict_top3_text(translated_text, assets)
+
+    # Menyatukan pipeline ke predict_top3_text murni untuk klasifikasi
+    results, translated_text = predict_top3_text(raw_text, assets)
 
     return {
-        "filename": os.path.basename(file_path),
+        "filename":         os.path.basename(file_path),
         "confidence_level": confidence_level(results[0]["confidence"]),
         "top3_predictions": results,
-        "translated_text": translated_text,
-        "cv_feedback": cv_feedback
     }
 
 
-def main():
-    # Contoh penggunaan
-    assets = load_inference_assets()
-    text = "Python SQL machine learning data analysis dashboard statistics"
-    result = predict_top3_text(text, assets)
+# ===========================================================================
+# CLI test
+# ===========================================================================
 
-    print("=== TOP-3 JOB CATEGORY PREDICTION (BERT) ===")
-    for i, item in enumerate(result, start=1):
+def main():
+    assets = load_inference_assets()
+    
+    # Test teks menggunakan Bahasa Indonesia untuk membuktikan fungsi auto-translate
+    text   = "Saya bisa pemrograman Python, SQL, machine learning dan membuat dashboard statistik"
+    results, translated = predict_top3_text(text, assets)
+
+    print("\n=== HASIL TRANSLASI ===")
+    print(f"Original: {text}")
+    print(f"Translated: {translated}")
+    print("\n=== TOP-3 JOB CATEGORY PREDICTION (BERT) ===")
+    for i, item in enumerate(results, start=1):
         print(f"Top {i}: {item['category']} -> {item['confidence']:.4f}")
 
 

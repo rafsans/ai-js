@@ -1,9 +1,4 @@
-"""
-3_evaluate_deep_learning.py
-===========================
-Evaluasi model BiLSTM Job Category Classifier.
-Membaca kolom: text, label
-"""
+
 
 import json
 import os

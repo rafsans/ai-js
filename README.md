@@ -1,175 +1,170 @@
-# Job Category Classifier + Resume Matching
+# Job Category Classifier API
 
-Project ini adalah sistem klasifikasi kategori pekerjaan berbasis teks dan matching resume-to-job menggunakan machine learning.
+Sistem klasifikasi kategori pekerjaan berbasis BERT dan matching resume-to-job menggunakan cosine similarity TF-IDF, dilengkapi REST API Flask dengan fitur auto-translate Bahasa Indonesia → Inggris via Gemini API.
 
-## Deskripsi
+---
+
+## Arsitektur Sistem
 
 | Komponen | Keterangan |
 |---|---|
-| Input model | Teks pekerjaan atau resume (kolom `text`) |
-| Target klasifikasi | Kategori pekerjaan (kolom `label`) |
-| Algoritma utama | BiLSTM Deep Learning |
-| Baseline | TF-IDF + Logistic Regression |
-| Matching | Cosine Similarity TF-IDF |
+| Model klasifikasi | BERT (`bert-base-uncased`) fine-tuned |
+| Matching | Cosine Similarity TF-IDF (bigram, cached) |
+| Auto-translate | Gemini 2.5 Flash API |
+| Analisis CV | Gemini 2.5 Flash API (role: Senior HRD) |
+| Framework API | Flask + flask-limiter |
+| Ekstraksi file | PyMuPDF (PDF), python-docx (DOCX) |
 
-## Format Dataset
-
-Dataset training **wajib** memiliki dua kolom berikut:
-
-```
-text,label
-```
-
-| Kolom | Keterangan |
-|---|---|
-| `text` | Input model: teks pekerjaan atau resume |
-| `label` | Target: kategori pekerjaan (job category) |
-
-Contoh isi dataset:
-
-```csv
-text,label
-"software engineer python sql database api",Information Technology
-"mechanical design engineer autocad manufacturing",Engineering
-"procurement executive supplier vendor purchasing",Operations
-```
-
-**File dataset:** `data/ds_jobs_ready.csv`
-
-Dataset dengan 14 kategori pekerjaan yang didukung:
-
-- Engineering
-- Information Technology
-- Sales
-- Healthcare
-- Finance
-- Operations
-- Marketing
-- Human Resources
-- Administration
-- Education
-- Customer Service
-- Legal
-- Creative Design
-- Hospitality
+---
 
 ## Struktur Folder
 
 ```
-resume_classifier/
+Model_Bert_v2/
 ├── data/
-│   ├── ds_jobs_ready.csv          ← dataset utama (text, label)
-│   ├── train_split.csv            ← data train
-│   ├── val_split.csv              ← data validation
-│   ├── test_split.csv             ← data test
-│   └── uploads/                   ← file resume yang diupload via API
+│   ├── ds_jobs_ready.csv          ← dataset utama (text, label, job_title, job_type, salary)
+│   ├── train_split.csv
+│   ├── val_split.csv
+│   ├── test_split.csv
+│   └── uploads/                   ← file sementara saat proses (auto-hapus)
 ├── models/
-│   ├── model_jobcategory_dl.keras ← model BiLSTM
-│   ├── tokenizer.pkl              ← tokenizer Keras
-│   ├── label_encoder.pkl          ← LabelEncoder scikit-learn
-│   ├── train_config.json          ← konfigurasi training
-│   └── jobcategory_tfidf_logreg.joblib  ← model baseline
-├── results/
-│   ├── deep_learning_report.txt
-│   ├── baseline_tfidf_logreg_results.json
-│   ├── model_comparison.csv
-│   └── ranked_job_matches.csv
+│   ├── bert_jobcategory/          ← folder model BERT hasil training
+│   └── bert_label_encoder.pkl     ← LabelEncoder scikit-learn
+├── logs/
+│   └── app/
+│       └── app.log                ← log rotasi (maks 5MB × 3 backup)
+├── app.py                         ← entry point API Flask
+├── predict_top3_dl.py             ← inferensi BERT + auto-translate
+├── matching.py                    ← job matching cosine similarity
+├── translator.py                  ← Gemini translate & analisis CV
+├── extractors.py                  ← ekstrak teks dari PDF/DOCX/TXT
+├── logger.py                      ← konfigurasi logging
+├── project_utils.py               ← preprocessing & utilitas dataset
 ├── 1_preprocess_data.py
 ├── 2_train_deep_learning.py
+├── 3b_train_bert.py               ← training BERT (model utama)
 ├── 3_evaluate_deep_learning.py
 ├── 4_compare_models.py
 ├── 5_train_baseline_tfidf.py
 ├── 6_cosine_similarity_regression.py
-├── app.py
-├── predict_top3_dl.py
-├── matching.py
-├── project_utils.py
-├── extractors.py
-└── requirements.txt
-```
-
-## Cara Menjalankan
-
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Siapkan Dataset
-
-Letakkan file dataset di:
-
-```bash
-data/ds_jobs_ready.csv
-```
-
-Dataset harus memiliki kolom `text` dan `label`.
-
-### 3. Jalankan Pipeline Secara Urutan
-
-```bash
-# Step 1: Preprocessing & validasi dataset
-python 1_preprocess_data.py
-
-# Step 2: Training model deep learning BiLSTM
-python 2_train_deep_learning.py
-
-# Step 3: Evaluasi model deep learning
-python 3_evaluate_deep_learning.py
-
-# Step 4: Training model baseline TF-IDF
-python 5_train_baseline_tfidf.py
-
-# Step 5: Bandingkan DL vs Baseline
-python 4_compare_models.py
-
-# Step 6: Cosine similarity ranking (opsional)
-python 6_cosine_similarity_regression.py
-
-# Step 7: Jalankan API Flask
-python app.py
-```
-
-## API Endpoints
-
-### GET /
-
-Info API.
-
-```bash
-curl http://127.0.0.1:5000/
+├── requirements.txt
+└── .env                           ← konfigurasi API key (jangan di-commit)
 ```
 
 ---
 
-### POST /predict-text
+## Instalasi
 
-Prediksi Top-3 job category dari teks JSON.
+### 1. Clone & install dependencies
+
+```bash
+git clone <repo-url>
+cd Model_Bert_v2
+pip install -r requirements.txt
+```
+
+### 2. Konfigurasi environment
+
+Buat file `.env` di root project:
+
+```env
+GEMINI_API_KEY=your_api_key_here
+FLASK_DEBUG=false
+PORT=5000
+REDIS_URL=redis://localhost:6379   # opsional, untuk rate limiter multi-worker
+```
+
+> Dapatkan `GEMINI_API_KEY` di: https://aistudio.google.com
+
+### 3. Siapkan dataset
+
+Letakkan file dataset di `data/ds_jobs_ready.csv`. Kolom wajib:
+
+| Kolom | Keterangan |
+|---|---|
+| `text` | Teks deskripsi pekerjaan (sudah di-preprocess) |
+| `label` | Kategori pekerjaan |
+| `job_title` | Judul pekerjaan |
+| `job_type` | Tipe pekerjaan (Full-time, Part-time, dll) |
+| `salary` / `gaji_perbulan` | Gaji (opsional, ditampilkan di response jika ada) |
+
+### 4. Training model BERT
+
+```bash
+python 3b_train_bert.py
+```
+
+Model tersimpan di `models/bert_jobcategory/` dan `models/bert_label_encoder.pkl`.
+
+### 5. Jalankan API
+
+```bash
+python app.py
+```
+
+Server berjalan di `http://localhost:5000` (default).
+
+---
+
+## API Endpoints
+
+### GET `/`
+
+Info status API.
+
+```bash
+curl http://localhost:5000/
+```
+
+```json
+{
+  "service": "Job Category Classifier API",
+  "model": "BERT (bert-base-uncased)",
+  "status": "active",
+  "model_loaded": true,
+  "dataset_loaded": true
+}
+```
+
+---
+
+### POST `/predict-text`
+
+Prediksi Top-3 kategori pekerjaan dari teks JSON. Mendukung Bahasa Indonesia (auto-translate).
+
+Tidak ada rate limit.
 
 **Request:**
 
 ```bash
-curl -X POST http://127.0.0.1:5000/predict-text \
+curl -X POST http://localhost:5000/predict-text \
   -H "Content-Type: application/json" \
-  -d '{"text": "python sql machine learning data analysis dashboard statistics"}'
+  -d '{"text": "python sql machine learning data analysis", "top_n": 5}'
 ```
+
+| Parameter | Tipe | Wajib | Keterangan |
+|---|---|---|---|
+| `text` | string | ✅ | Teks CV atau deskripsi keahlian |
+| `top_n` | integer | ❌ | Jumlah rekomendasi pekerjaan (default: 5, maks: 50) |
 
 **Response:**
 
 ```json
 {
+  "original_text": "python sql machine learning data analysis",
   "top3_predictions": [
-    {"category": "Information Technology", "confidence": 0.85},
-    {"category": "Engineering",            "confidence": 0.10},
-    {"category": "Finance",                "confidence": 0.05}
+    {"category": "information_technology", "confidence": 0.91},
+    {"category": "administration",         "confidence": 0.05},
+    {"category": "digital_marketing",      "confidence": 0.02}
   ],
-  "predicted_category": "Information Technology",
+  "predicted_category": "information_technology",
   "job_recommendations": [
     {
       "rank": 1,
-      "label": "Information Technology",
-      "text": "data analyst python sql...",
+      "label": "information_technology",
+      "job_title": "Data Analyst",
+      "job_type": "Full-time",
+      "salary": "5000000",
       "cosine_similarity_score": 0.82,
       "match_percentage": 82.0
     }
@@ -179,50 +174,135 @@ curl -X POST http://127.0.0.1:5000/predict-text \
 
 ---
 
-### POST /predict
+### POST `/predict`
 
-Prediksi Top-3 job category dari file upload (PDF, DOCX, atau TXT).
+Prediksi Top-3 kategori pekerjaan dari file upload. Mendukung PDF, DOCX, TXT.
+
+**Rate limit:** 5 request/menit, 20 request/jam.
 
 ```bash
-curl -X POST http://127.0.0.1:5000/predict \
-  -F "file=@resume.pdf"
+curl -X POST http://localhost:5000/predict \
+  -F "file=@resume.pdf" \
+  -F "top_n=5"
 ```
+
+| Parameter | Tipe | Wajib | Keterangan |
+|---|---|---|---|
+| `file` | file | ✅ | File PDF, DOCX, atau TXT (maks 10MB) |
+| `top_n` | integer | ❌ | Jumlah rekomendasi pekerjaan (default: 5, maks: 50) |
+
+**Response:** sama dengan `/predict-text`, ditambah field `filename` dan `confidence_level` (High / Medium / Low).
+
+> PDF berbasis gambar/scan tidak didukung — hanya PDF dengan teks yang dapat diseleksi.
 
 ---
 
-### POST /match-jobs
+### POST `/match-jobs`
 
-Ranking pekerjaan berdasarkan cosine similarity resume.
+Ranking seluruh pekerjaan berdasarkan cosine similarity dengan teks resume, tanpa klasifikasi BERT.
 
-**Request:**
+Tidak ada rate limit.
 
 ```bash
-curl -X POST http://127.0.0.1:5000/match-jobs \
+curl -X POST http://localhost:5000/match-jobs \
   -H "Content-Type: application/json" \
-  -d '{"resume_text": "python sql machine learning data analyst", "top_n": 5}'
+  -d '{"resume_text": "python sql data analyst machine learning", "top_n": 10}'
+```
+
+| Parameter | Tipe | Wajib | Keterangan |
+|---|---|---|---|
+| `resume_text` | string | ✅ | Teks resume atau keahlian |
+| `top_n` | integer | ❌ | Jumlah hasil (default: 10, maks: 50) |
+
+---
+
+### POST `/analyze-cv`
+
+Analisis CV dan feedback perbaikan menggunakan Gemini API (role: Senior HRD). Mendukung teks JSON atau file upload.
+
+**Rate limit:** 5 request/menit, 20 request/jam.
+
+```bash
+# Dari teks
+curl -X POST http://localhost:5000/analyze-cv \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Saya lulusan S1 Informatika dengan pengalaman 2 tahun..."}'
+
+# Dari file
+curl -X POST http://localhost:5000/analyze-cv \
+  -F "file=@resume.pdf"
 ```
 
 **Response:**
 
 ```json
 {
-  "total_matches": 5,
-  "matches": [
-    {
-      "rank": 1,
-      "label": "Information Technology",
-      "text": "data analyst python sql ...",
-      "cosine_similarity_score": 0.79,
-      "match_percentage": 79.0
-    }
-  ]
+  "cv_feedback": "## Evaluasi CV\n\nStruktur CV cukup baik...",
+  "source": "file"
 }
 ```
 
+---
+
+### POST `/translate`
+
+Terjemahkan teks ke Bahasa Inggris menggunakan Gemini API.
+
+**Rate limit:** 10 request/menit, 50 request/jam.
+
+```bash
+curl -X POST http://localhost:5000/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Saya memiliki pengalaman di bidang pengembangan web"}'
+```
+
+---
+
+## Konfigurasi Rate Limit
+
+| Endpoint | Limit/Menit | Limit/Jam |
+|---|---|---|
+| `POST /predict` | 5 | 20 |
+| `POST /analyze-cv` | 5 | 20 |
+| `POST /translate` | 10 | 50 |
+| `POST /match-jobs` | 10 | 50 |
+| `POST /predict-text` | — | — |
+
+Rate limiter menggunakan **Redis** jika `REDIS_URL` dikonfigurasi. Tanpa Redis, fallback ke in-memory (tidak persisten antar restart, tidak efektif di multi-worker).
+
+---
+
+## Error Codes
+
+| HTTP Code | Penyebab |
+|---|---|
+| `400` | Input kosong atau format tidak valid |
+| `413` | File melebihi batas ukuran (10MB) |
+| `429` | Rate limit terlampaui |
+| `500` | Model belum dilatih atau error internal |
+| `503` | `GEMINI_API_KEY` belum dikonfigurasi |
+
+---
+
+## Logging
+
+Log ditulis ke terminal dan file `logs/app/app.log` secara bersamaan.
+
+**Format:**
+```
+2026-05-24 14:16:28 | INFO    | app        | File diterima: resume.pdf (214.3 KB)
+2026-05-24 14:16:30 | INFO    | app        | Prediksi selesai: resume.pdf → administration
+2026-05-24 14:18:03 | ERROR   | translator | Analyze error: quota exceeded
+```
+
+Rotasi otomatis: maksimal 5MB per file, 3 file backup (`app.log.1`, `app.log.2`, `app.log.3`).
+
+---
+
 ## Catatan Teknis
 
-- Dataset tidak seimbang → menggunakan `class_weight='balanced'` (bukan SMOTE).
-- Model BiLSTM menggunakan EarlyStopping dan ModelCheckpoint.
-- Nama model konsisten: `model_jobcategory_dl.keras`, `jobcategory_tfidf_logreg.joblib`.
-- API tidak crash jika model belum dilatih — memberikan pesan error yang jelas.
-- Matching menggunakan kolom `text` dan `label` dari dataset.
+- Model BERT wajib dilatih terlebih dahulu via `3b_train_bert.py` sebelum API bisa melayani request prediksi.
+- API tidak crash jika model atau dataset belum tersedia — endpoint yang membutuhkannya mengembalikan HTTP 500 dengan pesan yang jelas.
+- TF-IDF vectorizer di-cache per kumpulan job description sehingga request kedua dan seterusnya jauh lebih cepat.
+- File upload dihapus otomatis setelah diproses, baik sukses maupun error.
+- Teks di-truncate di batas kalimat terakhir (maks 12.000 karakter) sebelum dikirim ke Gemini.

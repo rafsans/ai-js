@@ -1,9 +1,4 @@
-"""
-5_train_baseline_tfidf.py
-=========================
-Baseline model TF-IDF + Logistic Regression untuk Job Category Classifier.
-Dataset: data/ds_jobs_ready.csv (kolom: text, label)
-"""
+
 
 import json
 import os

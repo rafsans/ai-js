@@ -1,47 +1,129 @@
 import os
-from google import genai
+from pathlib import Path
+from dotenv import load_dotenv
 
-# Setup API Key milik Anda (Termasuk dalam Free Tier / Jalur Gratis)
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyD7rS26HCUD1of7DpH3a9au1loMMyLa4lE")
+from logger import get_logger
+log = get_logger("translator")
 
-def translate_to_english(text: str) -> str:
+_ENV_PATHS = [Path(".env")]
+
+def _load_env() -> None:
+    for path in _ENV_PATHS:
+        if path.exists():
+            load_dotenv(path, override=True)
+            return
+
+_load_env()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_api_key() -> str:
+    """Baca GEMINI_API_KEY dari environment. Raise jika kosong."""
+    key = os.getenv("GEMINI_API_KEY", "").strip().strip('"').strip("'")
+    if not key:
+        raise EnvironmentError(
+            "GEMINI_API_KEY belum dikonfigurasi.\n"
+            "Buat file .env lalu isi: GEMINI_API_KEY=your_api_key_here\n"
+            "Dapatkan key di: https://aistudio.google.com"
+        )
+    return key
+
+
+def _get_client():
+    """Buat Gemini client dengan key terbaru dari environment."""
+    try:
+        from google import genai
+    except ImportError:
+        raise ImportError(
+            "Library google-genai belum terinstall.\n"
+            "Jalankan: pip install google-genai"
+        )
+    return genai.Client(api_key=_get_api_key())
+
+
+# ---------------------------------------------------------------------------
+# Public functions
+# ---------------------------------------------------------------------------
+
+_MAX_CHARS     = 12000
+_TRANSLATE_TIMEOUT = 15
+_ANALYZE_TIMEOUT   = 20
+
+
+def _truncate_at_sentence(text: str, max_chars: int = _MAX_CHARS) -> str:
+    """Potong teks di batas kalimat terakhir yang muat dalam max_chars."""
+    if len(text) <= max_chars:
+        return text
+    chunk = text[:max_chars]
+    last  = max(chunk.rfind(". "), chunk.rfind(".\n"), chunk.rfind("! "), chunk.rfind("? "))
+    return chunk[:last + 1].strip() if last != -1 else chunk.strip()
+
+
+def translate_to_english(text: str, timeout: int = _TRANSLATE_TIMEOUT) -> str:
     """
-    Menerjemahkan teks resume dari bahasa Indonesia ke bahasa Inggris menggunakan Gemini API.
-    Memanfaatkan jalur Free Tier berkecepatan tinggi dengan SDK resmi terbaru (google-genai).
+    Menerjemahkan teks resume dari bahasa Indonesia ke bahasa Inggris
+    menggunakan Gemini API.
+
+    Args:
+        text: teks CV/resume dalam bahasa apapun
+        timeout: batas waktu request ke Gemini dalam detik
+
+    Returns:
+        Teks terjemahan bahasa Inggris. Jika gagal, kembalikan teks asli.
     """
     if not text or not text.strip():
         return text
-    
+
+    text = _truncate_at_sentence(text)
+
     try:
-        # Menginisialisasi koneksi klien dengan kunci API Anda
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        
+        client = _get_client()
         prompt = (
-            "Translate the following resume or job description text to English. "
-            "Only output the translated text without any conversational filler or explanation. "
-            "If it's already in English, just return the exact same text or fix minor typos:\n\n"
+            "Translate ALL text to professional English.\n"
+            "Do not keep Indonesian words.\n"
+            "Convert the entire sentence fully into English.\n"
+            "Keep only technical terms, programming languages, and software names unchanged.\n"
+            "Output ONLY the translated English text without explanation.\n\n"
             f"{text}"
         )
-        
-        # Menggunakan model cerdas yang gratis di tier pengembang
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
+            model="gemini-2.5-flash",
+            contents=prompt,
+            http_options={"timeout": timeout},
         )
-        return response.text.strip()
+        return (response.text or "").strip() or text
+
+    except EnvironmentError as e:
+        log.warning(f"Translator: {e}")
+        return text
     except Exception as e:
-        print(f"[WARNING] Gemini API Translation failed: {e}. Falling back to original text.")
+        log.warning(f"Gemini API Translation failed: {e}. Menggunakan teks asli.")
         return text
 
-def analyze_resume(text: str) -> str:
+
+def analyze_resume(text: str, timeout: int = _ANALYZE_TIMEOUT) -> str:
     """
-    Memberikan umpan balik (feedback) perbaikan CV menggunakan peran HR Expert via Gemini API.
+    Memberikan umpan balik (feedback) perbaikan CV menggunakan peran
+    HR Expert via Gemini API.
+
+    Args:
+        text: teks CV/resume (bahasa apapun)
+        timeout: batas waktu request ke Gemini dalam detik
+
+    Returns:
+        String feedback dalam bahasa Indonesia format Markdown.
+        Jika gagal, kembalikan pesan error yang informatif.
     """
     if not text or not text.strip():
         return "Tidak ada teks yang dapat dianalisis."
-    
+
+    text = _truncate_at_sentence(text)
+
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = _get_client()
         prompt = (
             "Anda adalah seorang Senior HRD dan Konsultan Karir Profesional. "
             "Tugas Anda adalah membaca teks CV/Resume berikut lalu memberikan umpan balik (feedback) "
@@ -54,12 +136,16 @@ def analyze_resume(text: str) -> str:
             "Gunakan format Markdown yang rapi.\n\n"
             f"Teks CV:\n{text}"
         )
-        
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
+            model="gemini-2.5-flash",
+            contents=prompt,
+            http_options={"timeout": timeout},
         )
-        return response.text.strip()
+        return (response.text or "").strip()
+
+    except EnvironmentError as e:
+        log.warning(f"Analyzer: {e}")
+        return f"Analisis CV tidak tersedia: {e}"
     except Exception as e:
-        print(f"[WARNING] Gemini API Analysis failed: {e}")
-        return "Analisis CV tidak tersedia saat ini. Silakan coba lagi nanti."
+        log.error(f"Analyze error: {e}")
+        return f"ERROR ANALYZE: {str(e)}"

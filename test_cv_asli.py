@@ -4,7 +4,7 @@ from predict_top3_dl import predict_from_file
 def jalankan_test():
     print("=== PROGRAM PENGUJIAN CV/RESUME (BERT + GEMINI API) ===")
     
-    path_cv = r"CV_test.pdf" # Menggunakan berkas PDF yang Anda unggah
+    path_cv = os.path.join("data", "uploads", "CV_test.pdf")  # path relatif dari root project
     
     if not os.path.exists(path_cv):
         print(f"\n[INFO] Silakan ubah variabel 'path_cv' di dalam file ini ke lokasi CV asli Anda.")
