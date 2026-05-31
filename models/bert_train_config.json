@@ -1,8 +1,10 @@
 {
+  "framework": "TensorFlow (tf.keras)",
+  "model_type": "TFBertClassifier (Model Subclassing)",
   "pretrained_model": "bert-base-uncased",
-  "max_length": 512,
-  "batch_size": 16,
-  "epochs": 5,
+  "max_length": 128,
+  "batch_size": 32,
+  "epochs": 4,
   "learning_rate": 2e-05,
   "num_classes": 19,
   "label_classes": [
@@ -26,10 +28,16 @@
     "software_dev",
     "technical_support"
   ],
-  "model_dir": "models/bert_jobcategory",
-  "label_encoder": "models/bert_label_encoder.pkl",
-  "input_column": "text",
-  "target_column": "label",
+  "custom_components": {
+    "custom_layer": "ClassificationHead",
+    "custom_loss": "LabelSmoothingCategoricalCrossentropy",
+    "custom_callback": "Top3AccuracyCallback"
+  },
+  "saved_formats": {
+    "savedmodel": "models/bert_jobcategory_savedmodel",
+    "weights": "models/bert_jobcategory/tf_bert_weights",
+    "tokenizer": "models/bert_jobcategory"
+  },
   "split_shapes": {
     "train": [
       33715,
@@ -44,6 +52,6 @@
       8
     ]
   },
-  "test_accuracy": 0.9896684286400769,
-  "test_top3_accuracy": 0.997837578087458
+  "test_accuracy": 0.9827006246996636,
+  "test_top3_accuracy": 0.9956751561749159
 }
