@@ -9,8 +9,7 @@ matplotlib
 seaborn
 PyMuPDF
 python-docx
-torch
-transformers
+transformers==4.46.0
 google-genai
 python-dotenv
 langdetect
