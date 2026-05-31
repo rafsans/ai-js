@@ -92,7 +92,6 @@ def translate_to_english(text: str, timeout: int = _TRANSLATE_TIMEOUT) -> str:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
-            http_options={"timeout": timeout},
         )
         return (response.text or "").strip() or text
 
@@ -139,7 +138,6 @@ def analyze_resume(text: str, timeout: int = _ANALYZE_TIMEOUT) -> str:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
-            http_options={"timeout": timeout},
         )
         return (response.text or "").strip()
 

@@ -1,5 +1,6 @@
 import os
 import uuid
+import requests
 
 from flask import Flask, jsonify, request
 from flask_limiter import Limiter
@@ -248,6 +249,59 @@ def predict_file():
             os.remove(save_path)
 
 
+@app.route("/predict-url", methods=["POST"])
+@limiter.limit("5 per minute; 20 per hour")
+def predict_url():
+    if MODEL_ASSETS is None:
+        return jsonify({"error": "Model BERT belum tersedia."}), 500
+
+    payload = request.get_json(silent=True) or {}
+    file_url = payload.get("url")
+    top_n = max(1, min(int(payload.get("top_n", 5)), 50))
+
+    if not file_url:
+        return jsonify({"error": "URL wajib diisi."}), 400
+
+    save_path = None
+    try:
+        resp = requests.get(file_url, stream=True, timeout=15)
+        resp.raise_for_status()
+        
+        ext = ".pdf"
+        if ".docx" in file_url.lower(): ext = ".docx"
+        elif ".txt" in file_url.lower(): ext = ".txt"
+            
+        filename = f"{uuid.uuid4().hex}{ext}"
+        save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        
+        with open(save_path, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+                
+        log.info(f"File didownload dari URL: {file_url} -> {filename}")
+        
+        result = predict_from_file(save_path, assets=MODEL_ASSETS)
+        predicted_category = get_top_category(result.get("top3_predictions", []))
+        result["predicted_category"] = predicted_category
+        
+        if JOBS_DF is not None and predicted_category:
+            specific_jobs = rank_jobs_from_file_by_category(
+                file_path=save_path,
+                predicted_category=predicted_category,
+                jobs_df=JOBS_DF,
+                top_n=top_n,
+            )
+            result["job_recommendations"] = format_job_recommendations(specific_jobs)
+
+        return jsonify(result), 200
+        
+    except Exception as e:
+        log.error(f"Predict URL error: {e}")
+        return jsonify({"error": f"Gagal memproses file dari URL: {str(e)}"}), 500
+    finally:
+        if save_path and os.path.exists(save_path):
+            os.remove(save_path)
+
 @app.route("/match-jobs", methods=["POST"])
 @limiter.limit("10 per minute; 50 per hour")
 def match_jobs():
@@ -322,6 +376,58 @@ def analyze_cv():
         response["filename"] = filename
 
     return jsonify(response), 200
+
+
+@app.route("/analyze-cv-url", methods=["POST"])
+@limiter.limit("5 per minute; 20 per hour")
+def analyze_cv_url():
+    try:
+        from translator import analyze_resume, translate_to_english
+    except ImportError as e:
+        return jsonify({"error": f"Modul translator tidak tersedia: {e}"}), 500
+
+    payload = request.get_json(silent=True) or {}
+    file_url = payload.get("url")
+    if not file_url:
+        return jsonify({"error": "URL wajib diisi."}), 400
+
+    save_path = None
+    try:
+        resp = requests.get(file_url, stream=True, timeout=15)
+        resp.raise_for_status()
+        
+        ext = ".pdf"
+        if ".docx" in file_url.lower(): ext = ".docx"
+        elif ".txt" in file_url.lower(): ext = ".txt"
+            
+        filename = f"{uuid.uuid4().hex}{ext}"
+        save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        
+        with open(save_path, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+                
+        log.info(f"File didownload dari URL untuk dianalisis: {file_url} -> {filename}")
+        
+        raw_text = extract_text_from_file(save_path)
+        if not str(raw_text).strip():
+            return jsonify({"error": "Teks CV kosong setelah diekstrak."}), 400
+            
+        translated_text = translate_to_english(raw_text)
+        feedback = analyze_resume(translated_text)
+        
+        return jsonify({
+            "cv_feedback": feedback,
+            "source": "url",
+            "filename": filename
+        }), 200
+        
+    except Exception as e:
+        log.error(f"Analyze URL error: {e}")
+        return jsonify({"error": f"Gagal menganalisis CV dari URL: {str(e)}"}), 500
+    finally:
+        if save_path and os.path.exists(save_path):
+            os.remove(save_path)
 
 
 @app.route("/translate", methods=["POST"])
