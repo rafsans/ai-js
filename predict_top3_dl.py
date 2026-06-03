@@ -23,18 +23,12 @@ except ImportError:
     log.warning("Modul 'translator' tidak ditemukan atau gagal dimuat.")
     translate_to_english = lambda x: x
 
-# ===========================================================================
-# Paths — hasil output dari 3b_train_bert.py
-# ===========================================================================
+
 BERT_MODEL_DIR       = "models/bert_jobcategory"
 BERT_SAVEDMODEL_DIR  = "models/bert_jobcategory_savedmodel"
 LABEL_ENCODER_FILE   = "models/bert_label_encoder.pkl"
 MAX_LENGTH           = 128
 
-
-# ===========================================================================
-# Helpers
-# ===========================================================================
 
 def extract_text_from_file(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
@@ -56,9 +50,6 @@ def confidence_level(prob: float) -> str:
     return "Low"
 
 
-# ===========================================================================
-# Custom components — harus didefinisikan ulang agar SavedModel bisa di-load
-# ===========================================================================
 
 class ClassificationHead(tf.keras.layers.Layer):
     def __init__(self, num_classes: int, dropout_rate: float = 0.3, **kwargs):
@@ -95,10 +86,6 @@ class TFBertClassifier(tf.keras.Model):
         return self.cls_head(cls_token, training=training)
 
 
-# ===========================================================================
-# Load model assets
-# ===========================================================================
-
 def load_inference_assets() -> dict:
     """
     Load TF-BERT model + tokenizer + label encoder untuk inference.
@@ -118,7 +105,6 @@ def load_inference_assets() -> dict:
     log.info(f"Memuat tokenizer dari: {BERT_MODEL_DIR}")
     tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_DIR)
 
-    # ── Coba load SavedModel terlebih dahulu ──────────────────────────────
     if os.path.isdir(BERT_SAVEDMODEL_DIR):
         log.info(f"Memuat SavedModel dari: {BERT_SAVEDMODEL_DIR}")
         model = tf.keras.models.load_model(
@@ -130,7 +116,6 @@ def load_inference_assets() -> dict:
         )
         log.info("SavedModel berhasil di-load.")
 
-    # ── Fallback ke weights checkpoint ────────────────────────────────────
     elif os.path.isdir(BERT_MODEL_DIR):
         weights_path = os.path.join(BERT_MODEL_DIR, "tf_bert_weights")
         log.info(f"SavedModel tidak ditemukan. Memuat weights dari: {weights_path}")
@@ -162,10 +147,6 @@ def load_inference_assets() -> dict:
     }
 
 
-# ===========================================================================
-# Inference
-# ===========================================================================
-
 def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
     """
     Prediksi Top-3 job category dari teks input menggunakan TF-BERT + auto-translate.
@@ -176,7 +157,6 @@ def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
     if not input_text or not input_text.strip():
         return [{"category": "Unknown", "confidence": 0.0}], input_text
 
-    # 1. Deteksi bahasa & translasi ke English jika perlu
     translated_text = input_text
     try:
         if detect:
@@ -190,7 +170,6 @@ def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
         log.warning(f"Gagal mendeteksi bahasa atau translasi: {e}. Menggunakan teks asli.")
         translated_text = input_text
 
-    # 2. Preprocessing
     cleaned = safe_clean(translated_text)
     if not cleaned.strip():
         return [{"category": "Unknown", "confidence": 0.0}], translated_text
@@ -199,7 +178,6 @@ def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
     tokenizer     = assets["tokenizer"]
     label_encoder = assets["label_encoder"]
 
-    # 3. Tokenisasi → tf.Tensor
     enc = tokenizer(
         cleaned,
         max_length=MAX_LENGTH,
@@ -209,10 +187,8 @@ def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
     )
     inputs = {k: tf.cast(v, tf.int32) for k, v in enc.items()}
 
-    # 4. Inference
     output = model(inputs, training=False)
 
-    # Handle TFSequenceClassifierOutput atau plain tensor
     if hasattr(output, "logits"):
         probs = tf.nn.softmax(output.logits, axis=-1).numpy().squeeze()
     else:
@@ -247,9 +223,6 @@ def predict_from_file(file_path: str, assets: dict | None = None) -> dict:
     }
 
 
-# ===========================================================================
-# CLI test
-# ===========================================================================
 
 def main():
     assets = load_inference_assets()
