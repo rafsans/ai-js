@@ -147,7 +147,6 @@ def main():
     val_pad   = pad_sequences(tokenizer.texts_to_sequences(X_val),   maxlen=max_length, padding="post", truncating="post") if len(X_val)  else None
     test_pad  = pad_sequences(tokenizer.texts_to_sequences(X_test),  maxlen=max_length, padding="post", truncating="post") if len(X_test) else None
 
-    # class_weight digunakan karena dataset tidak seimbang
     class_weights_array = compute_class_weight(
         class_weight="balanced",
         classes=np.unique(y_train_int),
