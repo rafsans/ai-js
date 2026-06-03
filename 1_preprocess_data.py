@@ -19,7 +19,6 @@ def main():
     print(f"[INFO] Shape awal: {df.shape}")
     print(f"[INFO] Kolom tersedia: {df.columns.tolist()}")
 
-    # Validasi kolom wajib
     if "text" not in df.columns:
         raise ValueError(
             "Kolom 'text' tidak ditemukan. "
@@ -31,11 +30,9 @@ def main():
             "Dataset harus memiliki kolom: text, label"
         )
 
-    # Bersihkan tipe data
     df["text"] = df["text"].fillna("").astype(str).str.strip()
     df["label"] = df["label"].fillna("").astype(str).str.strip()
 
-    # Hapus baris kosong
     before = len(df)
     df = df[
         (df["text"] != "") &
@@ -45,7 +42,6 @@ def main():
     ].reset_index(drop=True)
     print(f"[INFO] Baris kosong dibuang: {before - len(df)}")
 
-    # Hapus duplikat
     before_dedup = len(df)
     df = df.drop_duplicates(subset=["text", "label"]).reset_index(drop=True)
     print(f"[INFO] Duplikat dibuang: {before_dedup - len(df)}")
@@ -53,7 +49,6 @@ def main():
     if df["label"].nunique() < 2:
         raise ValueError("Minimal harus ada 2 kelas label untuk klasifikasi.")
 
-    # Simpan hasil
     df.to_csv(OUTPUT_FILE, index=False, encoding="utf-8")
 
     print(f"\n[INFO] Dataset siap training disimpan ke: {OUTPUT_FILE}")
