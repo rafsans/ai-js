@@ -84,7 +84,6 @@ def main():
     X_eval   = eval_df["text"].astype(str)
     y_true_raw = eval_df["label"].astype(str)
 
-    # Hapus label yang tidak dikenal encoder
     known_mask = y_true_raw.isin(set(label_encoder.classes_))
     if not known_mask.all():
         removed = int((~known_mask).sum())
