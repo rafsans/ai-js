@@ -1,20 +1,3 @@
-"""
-4b_evaluate_bert.py
-===================
-Evaluasi model TF-BERT (TFBertClassifier) yang sudah ditraining oleh 3b_train_bert.py.
-
-Output:
-  results/bert_eval_report.txt          — laporan teks (accuracy, top-3, MAE, classification report)
-  results/bert_eval_predictions.csv     — prediksi per sample (top-3 kategori + probabilitas)
-  results/bert_confusion_matrix.png     — confusion matrix
-  results/bert_eval_summary.json        — ringkasan metrik dalam format JSON
-
-Cara pakai:
-  python 4b_evaluate_bert.py                    # pakai test set (default)
-  python 4b_evaluate_bert.py --split val        # pakai validation set
-  python 4b_evaluate_bert.py --split both       # evaluasi keduanya
-"""
-
 import argparse
 import json
 import os
@@ -33,9 +16,6 @@ from sklearn.metrics import (
 )
 from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
 
-# ============================================================================
-# Paths — harus sesuai dengan output 3b_train_bert.py
-# ============================================================================
 BERT_MODEL_DIR      = "models/bert_jobcategory"
 BERT_SAVEDMODEL_DIR = "models/bert_jobcategory_savedmodel"
 LABEL_ENCODER_FILE  = "models/bert_label_encoder.pkl"
@@ -50,15 +30,9 @@ PREDICTION_FILE       = "results/bert_eval_predictions.csv"
 CONFUSION_MATRIX_FILE = "results/bert_confusion_matrix.png"
 EVAL_SUMMARY_FILE     = "results/bert_eval_summary.json"
 
-# Default config (digunakan bila bert_train_config.json tidak ditemukan)
 MAX_LENGTH_DEFAULT  = 256
 BATCH_SIZE_DEFAULT  = 16
 PRETRAINED_DEFAULT  = "bert-base-uncased"
-
-
-# ============================================================================
-# Custom components — WAJIB didefinisikan ulang agar SavedModel bisa dimuat
-# ============================================================================
 
 class ClassificationHead(tf.keras.layers.Layer):
     """
@@ -126,10 +100,6 @@ class TFBertClassifier(tf.keras.Model):
         return super().get_config()
 
 
-# ============================================================================
-# Helpers
-# ============================================================================
-
 def top_k_accuracy_from_probs(probs: np.ndarray, y_true_int: np.ndarray, k: int = 3) -> float:
     """Hitung Top-K Accuracy dari matriks probabilitas."""
     top_k_indices = np.argsort(-probs, axis=1)[:, :k]
@@ -175,7 +145,6 @@ def load_model_and_artifacts(config: dict, num_classes: int):
     """
     pretrained = config.get("pretrained_model", PRETRAINED_DEFAULT)
 
-    # ── Load Label Encoder ────────────────────────────────────────────────
     if not os.path.exists(LABEL_ENCODER_FILE):
         raise FileNotFoundError(
             f"Label encoder tidak ditemukan: {LABEL_ENCODER_FILE}\n"
@@ -185,19 +154,16 @@ def load_model_and_artifacts(config: dict, num_classes: int):
         label_encoder = pickle.load(f)
     print(f"[INFO] Label encoder dimuat: {len(label_encoder.classes_)} kelas")
 
-    # ── Load Tokenizer ────────────────────────────────────────────────────
     tokenizer_path = BERT_MODEL_DIR if os.path.isdir(BERT_MODEL_DIR) else pretrained
     print(f"[INFO] Memuat tokenizer dari: {tokenizer_path}")
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
 
-    # ── Load Model ────────────────────────────────────────────────────────
     custom_objects = {
         "TFBertClassifier":                      TFBertClassifier,
         "ClassificationHead":                    ClassificationHead,
         "LabelSmoothingCategoricalCrossentropy": LabelSmoothingCategoricalCrossentropy,
     }
 
-    # Strategi 1: SavedModel
     if os.path.isdir(BERT_SAVEDMODEL_DIR):
         try:
             print(f"[INFO] Memuat SavedModel dari: {BERT_SAVEDMODEL_DIR}")
@@ -212,7 +178,6 @@ def load_model_and_artifacts(config: dict, num_classes: int):
             print(f"[WARNING] Gagal muat SavedModel: {e}")
             print("[INFO] Mencoba rekonstruksi dari weights...")
 
-    # Strategi 2: Rekonstruksi dari weights
     weights_path = os.path.join(BERT_MODEL_DIR, "tf_bert_weights")
     if not os.path.exists(weights_path + ".index"):
         raise FileNotFoundError(
@@ -236,7 +201,6 @@ def load_model_and_artifacts(config: dict, num_classes: int):
         name="tf_bert_classifier",
     )
 
-    # Build dengan dummy input sebelum load weights
     max_len = config.get("max_length", MAX_LENGTH_DEFAULT)
     dummy = {
         "input_ids":      tf.zeros((1, max_len), dtype=tf.int32),
@@ -323,7 +287,6 @@ def evaluate_split(
     ds    = tokenize_batch(texts, tokenizer, max_length, batch_size)
     probs = run_inference(model, ds)
 
-    # Potong probs sesuai jumlah sample aktual (batch terakhir bisa di-pad)
     probs = probs[:len(texts)]
 
     y_pred_int = np.argmax(probs, axis=1)
@@ -334,12 +297,10 @@ def evaluate_split(
     mae       = mae_confidence(probs, y_true_int)
     report    = classification_report(y_true_raw, y_pred_raw, zero_division=0)
 
-    # Ringkasan per kelas: precision, recall, f1
     report_dict = classification_report(
         y_true_raw, y_pred_raw, zero_division=0, output_dict=True
     )
 
-    # Bangun DataFrame prediksi
     top_indices = np.argsort(-probs, axis=1)[:, :top_k]
     pred_df     = eval_df[["text", "label"]].copy()
     pred_df["split"]            = split_name
@@ -396,10 +357,6 @@ def save_confusion_matrix(y_true, y_pred, label_encoder, split_name: str, out_pa
     print(f"[INFO] Confusion matrix disimpan ke: {out_path}")
 
 
-# ============================================================================
-# Main
-# ============================================================================
-
 def main():
     parser = argparse.ArgumentParser(
         description="Evaluasi TFBertClassifier (output dari 3b_train_bert.py)"
@@ -410,16 +367,13 @@ def main():
         default="test",
         help="Split yang dievaluasi: test (default), val, atau both",
     )
-    # parse_known_args() agar tidak crash saat dijalankan di Jupyter/Colab
     args, _ = parser.parse_known_args()
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    # ── Load konfigurasi ──────────────────────────────────────────────────
     config      = load_config()
     num_classes = config.get("num_classes")
 
-    # ── Load model & artifacts ────────────────────────────────────────────
     if num_classes is None:
         with open(LABEL_ENCODER_FILE, "rb") as f:
             _le = pickle.load(f)
@@ -428,7 +382,6 @@ def main():
     model, tokenizer, label_encoder = load_model_and_artifacts(config, num_classes)
     top_k = min(3, num_classes)
 
-    # ── Tentukan split yang akan dievaluasi ───────────────────────────────
     splits_to_eval = []
 
     if args.split in ("test", "both"):
@@ -457,7 +410,6 @@ def main():
         print("[ERROR] Tidak ada split yang bisa dievaluasi. Periksa path data.")
         sys.exit(1)
 
-    # ── Evaluasi setiap split ─────────────────────────────────────────────
     all_results  = []
     all_pred_dfs = []
 
@@ -471,7 +423,6 @@ def main():
             eval_df, split_name, config, top_k
         )
 
-        # Cetak metrik utama
         print(f"\n  Accuracy        : {result['accuracy']:.4f}")
         print(f"  Top-{top_k} Accuracy  : {result['top_k_acc']:.4f}")
         print(f"  MAE             : {result['mae']:.4f}  (confidence error, ↓ lebih baik)")
@@ -481,7 +432,6 @@ def main():
         all_results.append(result)
         all_pred_dfs.append(result["pred_df"])
 
-        # Simpan confusion matrix per split
         cm_path = (
             CONFUSION_MATRIX_FILE
             if len(splits_to_eval) == 1
@@ -495,7 +445,6 @@ def main():
             cm_path,
         )
 
-    # ── Simpan laporan teks ───────────────────────────────────────────────
     with open(REPORT_FILE, "w", encoding="utf-8") as f:
         f.write("=" * 60 + "\n")
         f.write("  TF-BERT (TFBertClassifier) — EVALUATION REPORT\n")
@@ -517,12 +466,10 @@ def main():
 
     print(f"\n[INFO] Laporan disimpan ke: {REPORT_FILE}")
 
-    # ── Simpan CSV prediksi ───────────────────────────────────────────────
     combined_pred = pd.concat(all_pred_dfs, ignore_index=True)
     combined_pred.to_csv(PREDICTION_FILE, index=False, encoding="utf-8")
     print(f"[INFO] Prediksi disimpan ke: {PREDICTION_FILE}")
 
-    # ── Simpan ringkasan JSON ─────────────────────────────────────────────
     summary = {
         "model_type":       "TFBertClassifier (Model Subclassing)",
         "pretrained_model": config.get("pretrained_model", PRETRAINED_DEFAULT),
@@ -551,7 +498,6 @@ def main():
         json.dump(summary, f, indent=2, ensure_ascii=False)
     print(f"[INFO] Ringkasan JSON disimpan ke: {EVAL_SUMMARY_FILE}")
 
-    # ── Cetak ringkasan akhir ─────────────────────────────────────────────
     print("\n" + "=" * 52)
     print("  RINGKASAN EVALUASI BERT")
     print("=" * 52)
