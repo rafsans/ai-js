@@ -16,12 +16,8 @@ def _load_env() -> None:
 _load_env()
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _get_api_key() -> str:
-    """Baca GEMINI_API_KEY dari environment. Raise jika kosong."""
     key = os.getenv("GEMINI_API_KEY", "").strip().strip('"').strip("'")
     if not key:
         raise EnvironmentError(
@@ -33,7 +29,6 @@ def _get_api_key() -> str:
 
 
 def _get_client():
-    """Buat Gemini client dengan key terbaru dari environment."""
     try:
         from google import genai
     except ImportError:
@@ -44,17 +39,12 @@ def _get_client():
     return genai.Client(api_key=_get_api_key())
 
 
-# ---------------------------------------------------------------------------
-# Public functions
-# ---------------------------------------------------------------------------
-
 _MAX_CHARS     = 12000
 _TRANSLATE_TIMEOUT = 15
 _ANALYZE_TIMEOUT   = 20
 
 
 def _truncate_at_sentence(text: str, max_chars: int = _MAX_CHARS) -> str:
-    """Potong teks di batas kalimat terakhir yang muat dalam max_chars."""
     if len(text) <= max_chars:
         return text
     chunk = text[:max_chars]
@@ -63,17 +53,6 @@ def _truncate_at_sentence(text: str, max_chars: int = _MAX_CHARS) -> str:
 
 
 def translate_to_english(text: str, timeout: int = _TRANSLATE_TIMEOUT) -> str:
-    """
-    Menerjemahkan teks resume dari bahasa Indonesia ke bahasa Inggris
-    menggunakan Gemini API.
-
-    Args:
-        text: teks CV/resume dalam bahasa apapun
-        timeout: batas waktu request ke Gemini dalam detik
-
-    Returns:
-        Teks terjemahan bahasa Inggris. Jika gagal, kembalikan teks asli.
-    """
     if not text or not text.strip():
         return text
 
@@ -105,18 +84,6 @@ def translate_to_english(text: str, timeout: int = _TRANSLATE_TIMEOUT) -> str:
 
 
 def analyze_resume(text: str, timeout: int = _ANALYZE_TIMEOUT) -> str:
-    """
-    Memberikan umpan balik (feedback) perbaikan CV menggunakan peran
-    HR Expert via Gemini API.
-
-    Args:
-        text: teks CV/resume (bahasa apapun)
-        timeout: batas waktu request ke Gemini dalam detik
-
-    Returns:
-        String feedback dalam bahasa Indonesia format Markdown.
-        Jika gagal, kembalikan pesan error yang informatif.
-    """
     if not text or not text.strip():
         return "Tidak ada teks yang dapat dianalisis."
 
