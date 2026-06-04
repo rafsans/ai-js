@@ -121,38 +121,40 @@ def load_inference_assets() -> dict:
     # ── Coba load SavedModel terlebih dahulu ──────────────────────────────
     if os.path.isdir(BERT_SAVEDMODEL_DIR):
         log.info(f"Memuat SavedModel dari: {BERT_SAVEDMODEL_DIR}")
-        model = tf.keras.models.load_model(
-            BERT_SAVEDMODEL_DIR,
-            custom_objects={
-                "TFBertClassifier": TFBertClassifier,
-                "ClassificationHead": ClassificationHead,
-            },
-        )
-        log.info("SavedModel berhasil di-load.")
+        try:
+            # Keras 3: Gunakan TFSMLayer untuk load SavedModel bawaan TensorFlow versi lama secara offline
+            model = tf.keras.layers.TFSMLayer(BERT_SAVEDMODEL_DIR, call_endpoint='serving_default')
+            log.info("SavedModel berhasil di-load menggunakan TFSMLayer (Offline mode).")
+            model_loaded = True
+        except Exception as e:
+            log.warning(f"Gagal memuat SavedModel: {e}. Akan mencoba memuat weights sebagai fallback.")
+            model_loaded = False
+    else:
+        model_loaded = False
 
     # ── Fallback ke weights checkpoint ────────────────────────────────────
-    elif os.path.isdir(BERT_MODEL_DIR):
-        weights_path = os.path.join(BERT_MODEL_DIR, "tf_bert_weights")
-        log.info(f"SavedModel tidak ditemukan. Memuat weights dari: {weights_path}")
-        bert_base = TFAutoModelForSequenceClassification.from_pretrained(
-            BERT_MODEL_DIR,
-            num_labels=num_classes,
-        ).layers[0]
-        model = TFBertClassifier(bert_base, num_classes)
-        dummy = {
-            "input_ids":      tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
-            "attention_mask": tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
-            "token_type_ids": tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
-        }
-        _ = model(dummy, training=False)
-        model.load_weights(weights_path)
-        log.info("Weights berhasil di-load.")
-
-    else:
-        raise FileNotFoundError(
-            f"Model tidak ditemukan di '{BERT_SAVEDMODEL_DIR}' maupun '{BERT_MODEL_DIR}'.\n"
-            "Jalankan 3b_train_bert.py untuk melatih model terlebih dahulu."
-        )
+    if not model_loaded:
+        if os.path.isdir(BERT_MODEL_DIR):
+            weights_path = os.path.join(BERT_MODEL_DIR, "tf_bert_weights")
+            log.info(f"SavedModel tidak ditemukan. Memuat weights dari: {weights_path}")
+            bert_base = TFAutoModelForSequenceClassification.from_pretrained(
+                "bert-base-uncased",
+                num_labels=num_classes,
+            ).layers[0]
+            model = TFBertClassifier(bert_base, num_classes)
+            dummy = {
+                "input_ids":      tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
+                "attention_mask": tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
+                "token_type_ids": tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
+            }
+            _ = model(dummy, training=False)
+            model.load_weights(weights_path)
+            log.info("Weights berhasil di-load.")
+        else:
+            raise FileNotFoundError(
+                f"Model tidak ditemukan di '{BERT_SAVEDMODEL_DIR}' maupun '{BERT_MODEL_DIR}'.\n"
+                "Jalankan 3b_train_bert.py untuk melatih model terlebih dahulu."
+            )
 
     log.info(f"TF-BERT siap | Kelas: {num_classes}")
     return {
@@ -212,8 +214,11 @@ def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
     # 4. Inference
     output = model(inputs, training=False)
 
-    # Handle TFSequenceClassifierOutput atau plain tensor
-    if hasattr(output, "logits"):
+    # Handle TFSequenceClassifierOutput, dict (TFSMLayer), atau plain tensor
+    if isinstance(output, dict):
+        # TFSMLayer mengembalikan dictionary, misal {'output_1': tensor}
+        probs = list(output.values())[0].numpy().squeeze()
+    elif hasattr(output, "logits"):
         probs = tf.nn.softmax(output.logits, axis=-1).numpy().squeeze()
     else:
         probs = output.numpy().squeeze()
