@@ -1,10 +1,3 @@
-"""
-project_utils.py
-================
-Utilitas bersama untuk Job Category Classifier.
-Dataset standar: kolom text (input) dan label (target).
-"""
-
 import math
 import os
 import re
@@ -14,10 +7,6 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 
-
-# ===========================================================================
-# I/O helpers
-# ===========================================================================
 
 def read_csv_safe(path: str) -> pd.DataFrame:
     try:
@@ -50,10 +39,6 @@ def load_ready_data(path: str = "data/ds_jobs_ready.csv") -> pd.DataFrame:
     return df
 
 
-# ===========================================================================
-# Text cleaning
-# ===========================================================================
-
 def clean_noise(text) -> str:
     if pd.isna(text):
         return ""
@@ -68,11 +53,6 @@ def clean_noise(text) -> str:
     return text
 
 
-# ===========================================================================
-# Safe preprocessing — melindungi tech tokens & normalisasi skill alias
-# ===========================================================================
-
-# Nama teknologi yang sering rusak akibat regex agresif
 _TECH_PLACEHOLDERS: dict[str, str] = {
     "c++":        "CPLUSPLUSLANG",
     "c#":         "CSHARPLANG",
@@ -91,7 +71,6 @@ _TECH_PLACEHOLDERS: dict[str, str] = {
     "graphql":    "GRAPHQLLANG",
 }
 
-# Alias skill pendek → nama lengkap
 SKILL_ALIASES: dict[str, str] = {
     # Programming languages
     "js":    "javascript",
@@ -187,10 +166,6 @@ def safe_clean(text: str) -> str:
     return text
 
 
-# ===========================================================================
-# Skill extraction
-# ===========================================================================
-
 SKILL_TAXONOMY = {
     "Python": [r"\bpython\b"],
     "R": [r"\br programming\b", r"\br language\b", r"\bggplot\b", r"\btidyverse\b", r"\brstudio\b"],
@@ -238,10 +213,6 @@ def extract_skills(text) -> list:
         if any(re.search(p, text, re.I) for p in patterns)
     ]
 
-
-# ===========================================================================
-# Train/val/test split helpers
-# ===========================================================================
 
 def can_use_stratify(y, test_size: float) -> bool:
     counts = Counter(y)
@@ -329,8 +300,6 @@ def split_train_val_test(
     return train_df, val_df, test_df
 
 
-# ===========================================================================
-# Metrics
 # ===========================================================================
 
 def top_k_accuracy_from_probs(probs, y_true_int, k: int = 3) -> float:

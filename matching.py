@@ -9,16 +9,14 @@ from logger import get_logger
 
 log = get_logger("matching")
 
-# Cache safe_clean agar teks yang sama tidak diproses ulang
 _cached_safe_clean = functools.lru_cache(maxsize=10000)(safe_clean)
 
 READY_DATA_FILE = "data/ds_jobs_ready.csv"
 
 OUTPUT_COLUMNS = ["label", "text", "cosine_similarity_score", "match_percentage", "job_title", "job_type", "gaji_perbulan", "salary"]
 
-SIMILARITY_THRESHOLD = 0.03  # Ambang batas untuk "matched" vs "uncertain"
+SIMILARITY_THRESHOLD = 0.03  
 
-# Cache vectorizer yang sudah di-fit agar tidak rebuild setiap request
 _vectorizer_cache: dict = {}
 
 def _get_vectorizer(job_texts: list[str]) -> tuple[TfidfVectorizer, any]:
@@ -114,7 +112,6 @@ def rank_jobs_by_resume_text(
     )
     result.insert(0, "rank", range(1, len(result) + 1))
     
-    # PERBAIKAN 1: Filter kolom sesuai OUTPUT_COLUMNS yang tersedia
     available_cols = [col for col in OUTPUT_COLUMNS if col in result.columns]
     return result[
         ["rank"] + available_cols
@@ -176,7 +173,6 @@ def rank_jobs_by_category(
     )
     result.insert(0, "rank", range(1, len(result) + 1))
     
-    # PERBAIKAN 2: Filter kolom sesuai OUTPUT_COLUMNS yang tersedia
     available_cols = [col for col in OUTPUT_COLUMNS if col in result.columns]
     return result[
         ["rank"] + available_cols

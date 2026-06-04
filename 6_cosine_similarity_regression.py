@@ -111,12 +111,10 @@ def main():
 
     df = load_ready_data(INPUT_FILE)
 
-    # 1. Ranking cosine similarity dari sample resume ke seluruh baris text
     sample_resume = get_sample_resume_text()
     ranked = rank_jobs_by_resume_text(sample_resume, jobs_df=df, top_n=20)
     ranked.to_csv(RANKING_OUTPUT, index=False, encoding="utf-8")
 
-    # 2. Supervised regression hanya jika ada kolom resume_text
     regression_status = train_regression_if_resume_column_exists(df)
 
     results = {

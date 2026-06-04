@@ -23,7 +23,6 @@ from logger import get_logger
 app = Flask(__name__)
 log = get_logger("app")
 
-# RATE LIMITER: Gunakan Redis jika REDIS_URL tersedia, fallback ke memory
 _redis_url     = os.getenv("REDIS_URL", "")
 _storage_uri   = _redis_url if _redis_url else "memory://"
 
@@ -41,7 +40,6 @@ if not _redis_url:
         "(counter tidak persisten antar restart dan tidak efektif di multi-worker)."
     )
 
-# VALIDASI: Membatasi ukuran maksimal file upload menjadi 10MB
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 UPLOAD_FOLDER      = "data/uploads"
@@ -67,15 +65,8 @@ except Exception as e:
     log.warning(f"Dataset job belum bisa di-load: {e}")
 
 
-# ---------------------------------------------------------------------------
-# Middleware
-# ---------------------------------------------------------------------------
-
 @app.before_request
 def check_api_key():
-    # Pengecualian untuk endpoint tertentu jika diperlukan (misal root endpoint)
-    # if request.endpoint == 'home':
-    #     return
     
     expected_api_key = os.getenv("API_KEY")
     if expected_api_key:
@@ -83,9 +74,6 @@ def check_api_key():
         if not api_key or api_key != expected_api_key:
             return jsonify({"error": "Unauthorized. Invalid or missing api-key in headers."}), 401
 
-# ---------------------------------------------------------------------------
-# Error Handlers
-# ---------------------------------------------------------------------------
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
@@ -103,10 +91,6 @@ def rate_limit_exceeded(error):
         "detail": str(error.description)
     }), 429
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -140,10 +124,6 @@ def save_uploaded_file(file) -> str:
     return save_path
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
@@ -175,7 +155,6 @@ def predict_text():
     if not str(text).strip():
         return jsonify({"error": "Field JSON 'text' wajib diisi dan tidak boleh kosong."}), 400
 
-    # AUTO TRANSLATE + PREDICT
     predictions, translated_text = predict_top3_text(
         text,
         MODEL_ASSETS
@@ -191,7 +170,6 @@ def predict_text():
         "predicted_category": predicted_category,
     }
 
-    # JOB RECOMMENDATION
     if JOBS_DF is not None and predicted_category:
         specific_jobs = rank_jobs_by_category(
             resume_text=translated_text,
