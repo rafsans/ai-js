@@ -108,9 +108,10 @@ def load_inference_assets() -> dict:
     if os.path.isdir(BERT_SAVEDMODEL_DIR):
         log.info(f"Memuat SavedModel dari: {BERT_SAVEDMODEL_DIR}")
         try:
-            # Keras 3: Gunakan TFSMLayer untuk load SavedModel bawaan TensorFlow versi lama secara offline
-            model = tf.keras.layers.TFSMLayer(BERT_SAVEDMODEL_DIR, call_endpoint='serving_default')
-            log.info("SavedModel berhasil di-load menggunakan TFSMLayer (Offline mode).")
+            # Gunakan tf.saved_model.load langsung agar terhindar dari bug unpacking argumen TFSMLayer di Keras 3
+            loaded_sm = tf.saved_model.load(BERT_SAVEDMODEL_DIR)
+            model = loaded_sm.signatures['serving_default']
+            log.info("SavedModel berhasil di-load menggunakan tf.saved_model.load (Offline mode).")
             model_loaded = True
         except Exception as e:
             log.warning(f"Gagal memuat SavedModel: {e}. Akan mencoba memuat weights sebagai fallback.")
@@ -118,28 +119,29 @@ def load_inference_assets() -> dict:
     else:
         model_loaded = False
 
-    elif os.path.isdir(BERT_MODEL_DIR):
-        weights_path = os.path.join(BERT_MODEL_DIR, "tf_bert_weights")
-        log.info(f"SavedModel tidak ditemukan. Memuat weights dari: {weights_path}")
-        bert_base = TFAutoModelForSequenceClassification.from_pretrained(
-            BERT_MODEL_DIR,
-            num_labels=num_classes,
-        ).layers[0]
-        model = TFBertClassifier(bert_base, num_classes)
-        dummy = {
-            "input_ids":      tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
-            "attention_mask": tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
-            "token_type_ids": tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
-        }
-        _ = model(dummy, training=False)
-        model.load_weights(weights_path)
-        log.info("Weights berhasil di-load.")
+    if not model_loaded:
+        if os.path.isdir(BERT_MODEL_DIR):
+            weights_path = os.path.join(BERT_MODEL_DIR, "tf_bert_weights")
+            log.info(f"SavedModel tidak ditemukan. Memuat weights dari: {weights_path}")
+            bert_base = TFAutoModelForSequenceClassification.from_pretrained(
+                "bert-base-uncased",
+                num_labels=num_classes,
+            ).layers[0]
+            model = TFBertClassifier(bert_base, num_classes)
+            dummy = {
+                "input_ids":      tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
+                "attention_mask": tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
+                "token_type_ids": tf.zeros((1, MAX_LENGTH), dtype=tf.int32),
+            }
+            _ = model(dummy, training=False)
+            model.load_weights(weights_path)
+            log.info("Weights berhasil di-load.")
 
-    else:
-        raise FileNotFoundError(
-            f"Model tidak ditemukan di '{BERT_SAVEDMODEL_DIR}' maupun '{BERT_MODEL_DIR}'.\n"
-            "Jalankan 3b_train_bert.py untuk melatih model terlebih dahulu."
-        )
+        else:
+            raise FileNotFoundError(
+                f"Model tidak ditemukan di '{BERT_SAVEDMODEL_DIR}' maupun '{BERT_MODEL_DIR}'.\n"
+                "Jalankan 3b_train_bert.py untuk melatih model terlebih dahulu."
+            )
 
     log.info(f"TF-BERT siap | Kelas: {num_classes}")
     return {
@@ -189,9 +191,17 @@ def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
     )
     inputs = {k: tf.cast(v, tf.int32) for k, v in enc.items()}
 
-    output = model(inputs, training=False)
+    # Inference via tf.saved_model signature
+    if hasattr(model, 'call'):
+        # Keras model fallback
+        output = model(inputs, training=False)
+    else:
+        # SavedModel signature
+        output = model(**inputs)
 
-    if hasattr(output, "logits"):
+    if isinstance(output, dict):
+        probs = list(output.values())[0].numpy().squeeze()
+    elif hasattr(output, "logits"):
         probs = tf.nn.softmax(output.logits, axis=-1).numpy().squeeze()
     else:
         probs = output.numpy().squeeze()
