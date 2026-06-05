@@ -26,7 +26,7 @@ except ImportError:
     translate_to_english = lambda x: x
 
 # ===========================================================================
-# Paths — Menggunakan Absolute Path (Aman untuk Produksi/Inference)
+# Paths — Menggunakan Absolute Path 
 # ===========================================================================
 _BASE_DIR            = os.path.dirname(os.path.abspath(__file__))
 BERT_MODEL_DIR       = os.path.join(_BASE_DIR, "models", "bert_jobcategory")
@@ -140,7 +140,7 @@ def load_inference_assets() -> dict:
     log.info(f"Memuat tokenizer dari: {BERT_MODEL_DIR}")
     tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_DIR)
 
-    # ── Coba load SavedModel (Lengkap dengan Custom Objects) ──────────────
+    
     if os.path.isdir(BERT_SAVEDMODEL_DIR):
         log.info(f"Memuat SavedModel dari: {BERT_SAVEDMODEL_DIR}")
         model = tf.keras.models.load_model(
@@ -153,7 +153,7 @@ def load_inference_assets() -> dict:
         )
         log.info("SavedModel berhasil di-load.")
 
-    # ── Fallback ke weights checkpoint ────────────────────────────────────
+    
     elif os.path.isdir(BERT_MODEL_DIR):
         weights_path = os.path.join(BERT_MODEL_DIR, "tf_bert_weights")
         log.info(f"SavedModel tidak ditemukan. Memuat weights dari: {weights_path}")
@@ -213,7 +213,8 @@ def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
     cleaned = safe_clean(translated_text)
     if not cleaned.strip():
         return [{"category": "Unknown", "confidence": 0.0}], translated_text
-
+    if len(input_text.strip()) < 50:
+        return [{"category": "Unknown", "confidence": 0.0}], input_text
     model         = assets["model"]
     tokenizer     = assets["tokenizer"]
     label_encoder = assets["label_encoder"]
@@ -232,10 +233,10 @@ def predict_top3_text(input_text: str, assets: dict) -> tuple[list, str]:
 
     # 5. Ekstraksi probabilitas
     if hasattr(output, "logits"):
-        # Fallback Hugging Face mentah (belum lewat softmax)
+        
         probs = tf.nn.softmax(output.logits, axis=-1).numpy()[0]
     else:
-        # SavedModel / TFBertClassifier (sudah lewat softmax di head)
+        
         if isinstance(output, dict):
             key   = list(output.keys())[0]
             probs = output[key].numpy()[0]
