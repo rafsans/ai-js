@@ -16,8 +16,12 @@ def _load_env() -> None:
 _load_env()
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _get_api_key() -> str:
+    """Baca GEMINI_API_KEY dari environment. Raise jika kosong."""
     key = os.getenv("GEMINI_API_KEY", "").strip().strip('"').strip("'")
     if not key:
         raise EnvironmentError(
@@ -29,6 +33,7 @@ def _get_api_key() -> str:
 
 
 def _get_client():
+    """Buat Gemini client dengan key terbaru dari environment."""
     try:
         from google import genai
     except ImportError:
@@ -39,12 +44,17 @@ def _get_client():
     return genai.Client(api_key=_get_api_key())
 
 
-_MAX_CHARS     = 12000
+# ---------------------------------------------------------------------------
+# Public functions
+# ---------------------------------------------------------------------------
+
+_MAX_CHARS         = 12000
 _TRANSLATE_TIMEOUT = 15
 _ANALYZE_TIMEOUT   = 20
 
 
 def _truncate_at_sentence(text: str, max_chars: int = _MAX_CHARS) -> str:
+    """Potong teks di batas kalimat terakhir yang muat dalam max_chars."""
     if len(text) <= max_chars:
         return text
     chunk = text[:max_chars]
@@ -53,12 +63,18 @@ def _truncate_at_sentence(text: str, max_chars: int = _MAX_CHARS) -> str:
 
 
 def translate_to_english(text: str, timeout: int = _TRANSLATE_TIMEOUT) -> str:
+    """
+    Menerjemahkan teks resume dari bahasa Indonesia ke bahasa Inggris
+    menggunakan Gemini API.
+    """
     if not text or not text.strip():
         return text
 
     text = _truncate_at_sentence(text)
 
     try:
+        from google.genai import types
+
         client = _get_client()
         prompt = (
             "Translate ALL text to professional English.\n"
@@ -71,6 +87,9 @@ def translate_to_english(text: str, timeout: int = _TRANSLATE_TIMEOUT) -> str:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
+            config=types.GenerateContentConfig(
+                http_options=types.HttpOptions(timeout=timeout * 1000),
+            ),
         )
         return (response.text or "").strip() or text
 
@@ -83,12 +102,18 @@ def translate_to_english(text: str, timeout: int = _TRANSLATE_TIMEOUT) -> str:
 
 
 def analyze_resume(text: str, timeout: int = _ANALYZE_TIMEOUT) -> str:
+    """
+    Memberikan umpan balik (feedback) perbaikan CV menggunakan peran
+    HR Expert via Gemini API.
+    """
     if not text or not text.strip():
         return "Tidak ada teks yang dapat dianalisis."
 
     text = _truncate_at_sentence(text)
 
     try:
+        from google.genai import types
+
         client = _get_client()
         prompt = (
             "Anda adalah seorang Senior HRD dan Konsultan Karir Profesional. "
@@ -105,6 +130,9 @@ def analyze_resume(text: str, timeout: int = _ANALYZE_TIMEOUT) -> str:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
+            config=types.GenerateContentConfig(
+                http_options=types.HttpOptions(timeout=timeout * 1000),
+            ),
         )
         return (response.text or "").strip()
 
